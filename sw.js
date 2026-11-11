@@ -1,6 +1,6 @@
 /* Chess Pro AI - service worker (offline cache)
    When you upload a new version, bump CACHE_NAME (v2 -> v3 ...). Players then see an "UPDATE" banner. */
-const CACHE_NAME = 'chess-pro-v4';
+const CACHE_NAME = 'chess-pro-v5';
 
 /* index.html already contains the engine, rules and piece images, so this is all that is needed. */
 const ASSETS = [
@@ -15,8 +15,8 @@ const ASSETS = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) =>
-      /* one missing optional file must never stop the whole install */
-      Promise.all(ASSETS.map((url) => cache.add(url).catch((err) => console.warn('SW: not cached', url, err))))
+      /* cache:'reload' = always fetch fresh copies (never reuse the browser's stale HTTP cache); one missing file must never stop the install */
+      Promise.all(ASSETS.map((url) => cache.add(new Request(url, { cache: 'reload' })).catch((err) => console.warn('SW: not cached', url, err))))
     )
   );
 });
