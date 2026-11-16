@@ -1,15 +1,15 @@
 /* Chess Pro AI - service worker (offline cache)
    When you upload a new version, bump CACHE_NAME (v2 -> v3 ...). Players then see an "UPDATE" banner. */
-const CACHE_NAME = 'chess-pro-v9';
+const CACHE_NAME = 'chess-pro-v12';
 
 /* index.html already contains the engine, rules and piece images, so this is all that is needed. */
 const ASSETS = [
   './',
   './index.html',
   './manifest.json',
-  './icon-192.png',
-  './icon-512.png',
-  './icon-180.png'
+  './icons/icon-192.png',
+  './icons/icon-512.png',
+  './icons/icon-180.png'
 ];
 
 self.addEventListener('install', (event) => {
