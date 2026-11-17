@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Chess Pro AI</title>
-<meta name="theme-color" content="#262421">
+<meta name="theme-color" content="#2b2a27">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Chess Pro">
@@ -13,9 +13,9 @@
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <style>
 :root{
-  --bg:#262421; --panel:#312e2b; --panel2:#2b2926; --line:#3d3a37; --text:#fff; --muted:#a7a6a2;
+  --bg:#2b2a27; --panel:#312e2b; --panel2:#2b2926; --line:#3d3a37; --text:#fff; --muted:#a7a6a2;
   --accent:#81b64c; --accent-d:#6a9a3a;
-  --light:#ebecd0; --dark:#779556;
+  --light:#eeeed2; --dark:#769656;
   --bs:max(260px, min(calc(100vw - 16px), calc(100vh - 250px)));
 }
 @supports (height:100dvh){ :root{ --bs:max(260px, min(calc(100vw - 16px), calc(100dvh - 250px))); } }
@@ -60,14 +60,14 @@ button{ font:inherit; color:inherit; -webkit-tap-highlight-color:transparent; to
 
 /* ---------- board ---------- */
 #board{ position:relative; width:var(--bs); height:var(--bs); border-radius:4px; overflow:hidden;
-  box-shadow:0 8px 30px rgba(0,0,0,.5); touch-action:none; user-select:none; -webkit-user-select:none;
+  contain:layout paint; touch-action:none; user-select:none; -webkit-user-select:none;
   -webkit-touch-callout:none; cursor:default; }
 #squares{ position:absolute; inset:0; display:grid; grid-template:repeat(8,1fr)/repeat(8,1fr); }
 .sq{ position:relative; background:var(--light); }
 .sq.d{ background:var(--dark); }
 .sq::after{ content:""; position:absolute; inset:0; pointer-events:none; }
-.sq.last::after{ background:rgba(255,235,59,.42); }
-.sq.sel::after{ background:rgba(255,235,59,.7); }
+.sq.l.last::after,.sq.l.sel::after{ background:#f5f682; }
+.sq.d.last::after,.sq.d.sel::after{ background:#b9ca43; }
 .sq.pre::after,.sq.mk-g::after,.sq.mk-r::after{ background:rgba(235,97,80,.8); }
 .sq.mk-y::after{ background:rgba(245,200,40,.75); }
 .sq.mk-b::after{ background:rgba(59,111,224,.6); }
@@ -78,10 +78,10 @@ button{ font:inherit; color:inherit; -webkit-tap-highlight-color:transparent; to
 .sq.l .co{ color:var(--dark); } .sq.d .co{ color:var(--light); }
 #pieces,#hints,#arrows{ position:absolute; inset:0; pointer-events:none; }
 .pc{ position:absolute; left:0; top:0; width:12.5%; height:12.5%; background-size:100% 100%; background-repeat:no-repeat;
-  transition:transform .17s ease-out; will-change:transform; }
+  transition:transform .12s ease-out; will-change:transform; }
 .pc.notrans{ transition:none; }
 .pc.fly{ z-index:5; }
-.pc.drag{ transition:none; z-index:50; filter:drop-shadow(0 6px 6px rgba(0,0,0,.35)); }
+.pc.drag{ transition:none; z-index:50; }
 .dot{ position:absolute; left:0; top:0; width:12.5%; height:12.5%; }
 .dot::after{ content:""; position:absolute; left:50%; top:50%; width:32%; height:32%; transform:translate(-50%,-50%); border-radius:50%; background:rgba(0,0,0,.2); }
 .dot.cap::after{ width:100%; height:100%; background:radial-gradient(circle,transparent 61%,rgba(0,0,0,.2) 62%); }
@@ -269,7 +269,7 @@ var Chess=function(r){var u="b",s="w",l=-1,_="p",A="n",S="b",m="r",y="q",p="k",t
 /* =====================================================================
    Chess Pro AI v2 — offline chess vs Stockfish
    ===================================================================== */
-var VERSION = '2.4.0';
+var VERSION = '2.6.1';
 /* ---- EDIT THESE to change what the About screen shows ---- */
 var INFO = {
   name:    'Chess Pro AI',
@@ -328,7 +328,7 @@ function other(c){ return c==='w'?'b':'w'; }
 /* =====================================================================
    STATE
    ===================================================================== */
-var cfg = Object.assign({ sound:true, theme:'green', legal:true, color:'w', level:2, tc:'0' }, store('chesspro.cfg')||{});
+var cfg = Object.assign({ bg:true, sound:true, theme:'green', legal:true, color:'w', level:2, tc:'0' }, store('chesspro.cfg')||{});
 var S = {
   game:null, startFen:START_FEN,
   human:'w', level:2, tc:TCS[0],
@@ -337,7 +337,7 @@ var S = {
   clock:{w:0,b:0}, lastTick:null,
   viewPly:null,
   sel:null, targets:[], wasSel:false,
-  premove:null, hint:null, hintBusy:false, marks:{}, arrows:[],
+  premoves:[], hint:null, hintBusy:false, marks:{}, arrows:[],
   last:null, over:null,
   token:0, thinking:false,
   promo:null, modal:null, drag:null, rdown:null
@@ -349,38 +349,52 @@ function saveCfg(){ store('chesspro.cfg', cfg); }
 /* =====================================================================
    SOUND (synthesised, no files needed)
    ===================================================================== */
-var actx=null, noiseBuf=null;
+var actx=null, noiseBuf=null, master=null;
 function initAudio(){
   try{
-    if(!actx){ var AC=window.AudioContext||window.webkitAudioContext; if(AC) actx=new AC(); }
+    if(!actx){
+      var AC=window.AudioContext||window.webkitAudioContext;
+      if(AC){
+        try{ actx=new AC({latencyHint:'interactive'}); }catch(e){ actx=new AC(); }
+        master=actx.createGain(); master.gain.value=1.4;
+        var comp=actx.createDynamicsCompressor(); master.connect(comp); comp.connect(actx.destination);
+      }
+    }
     if(actx && actx.state==='suspended') actx.resume();
   }catch(e){}
 }
 function tone(f0,f1,t0,dur,type,vol){
   var o=actx.createOscillator(), g=actx.createGain();
   o.type=type||'sine'; o.frequency.setValueAtTime(f0,t0);
-  if(f1) o.frequency.exponentialRampToValueAtTime(f1,t0+dur);
+  if(f1&&f1!==f0) o.frequency.exponentialRampToValueAtTime(f1,t0+dur);
   g.gain.setValueAtTime(vol,t0); g.gain.exponentialRampToValueAtTime(0.0001,t0+dur);
-  o.connect(g); g.connect(actx.destination); o.start(t0); o.stop(t0+dur+0.02);
+  o.connect(g); g.connect(master); o.start(t0); o.stop(t0+dur+0.02);
 }
-function noise(t0,dur,vol,freq){
+function noise(t0,dur,vol,freq,q,ftype){
   if(!noiseBuf){ noiseBuf=actx.createBuffer(1,actx.sampleRate*0.2,actx.sampleRate); var d=noiseBuf.getChannelData(0); for(var i=0;i<d.length;i++) d[i]=Math.random()*2-1; }
   var s=actx.createBufferSource(); s.buffer=noiseBuf;
-  var f=actx.createBiquadFilter(); f.type='bandpass'; f.frequency.value=freq||1800; f.Q.value=0.8;
+  var f=actx.createBiquadFilter(); f.type=ftype||'bandpass'; f.frequency.value=freq||1800; f.Q.value=q||0.8;
   var g=actx.createGain(); g.gain.setValueAtTime(vol,t0); g.gain.exponentialRampToValueAtTime(0.0001,t0+dur);
-  s.connect(f); f.connect(g); g.connect(actx.destination); s.start(t0); s.stop(t0+dur+0.02);
+  s.connect(f); f.connect(g); g.connect(master); s.start(t0); s.stop(t0+dur+0.02);
+}
+/* a wooden piece landing on the board: low body + short knock + a tiny click */
+function thock(t,vol,pitch){
+  tone(190*pitch,62*pitch,t,0.11,'sine',0.95*vol);
+  tone(430*pitch,150*pitch,t,0.05,'triangle',0.30*vol);
+  noise(t,0.07,0.30*vol,650,0.7,'lowpass');
+  noise(t,0.028,0.55*vol,2300,1.3,'bandpass');
 }
 function sound(kind){
   if(!cfg.sound||!actx) return;
   try{
-    var t=actx.currentTime;
-    if(kind==='move'){ tone(210,90,t,0.09,'sine',0.55); noise(t,0.04,0.25,1500); }
-    else if(kind==='capture'){ tone(170,70,t,0.13,'triangle',0.7); noise(t,0.09,0.55,1200); }
-    else if(kind==='castle'){ tone(210,90,t,0.09,'sine',0.5); noise(t,0.04,0.2,1500); tone(230,100,t+0.12,0.09,'sine',0.5); noise(t+0.12,0.04,0.2,1500); }
-    else if(kind==='check'){ tone(210,90,t,0.09,'sine',0.5); tone(880,880,t+0.05,0.18,'square',0.07); }
-    else if(kind==='promote'){ tone(330,660,t,0.2,'triangle',0.3); }
-    else if(kind==='end'){ tone(392,392,t,0.25,'sine',0.3); tone(330,330,t+0.18,0.25,'sine',0.3); tone(262,262,t+0.36,0.45,'sine',0.3); }
-    else if(kind==='illegal'){ tone(120,100,t,0.12,'square',0.08); }
+    var t=actx.currentTime+0.005;
+    if(kind==='move'){ thock(t,0.8,1); }
+    else if(kind==='capture'){ thock(t,1.1,0.92); thock(t+0.032,0.7,1.3); noise(t,0.05,0.5,1500,0.9,'bandpass'); }
+    else if(kind==='castle'){ thock(t,0.75,1); thock(t+0.14,0.9,0.88); }
+    else if(kind==='check'){ thock(t,1.0,0.95); tone(1175,1175,t+0.07,0.16,'sine',0.14); tone(1568,1568,t+0.14,0.2,'sine',0.11); }
+    else if(kind==='promote'){ thock(t,0.8,1); tone(523,523,t+0.09,0.14,'sine',0.2); tone(659,659,t+0.17,0.14,'sine',0.2); tone(784,784,t+0.25,0.28,'sine',0.22); }
+    else if(kind==='end'){ [440,330,262].forEach(function(f,i){ tone(f,f,t+i*0.17,0.5,'sine',0.26); tone(f*2,f*2,t+i*0.17,0.3,'sine',0.07); }); }
+    else if(kind==='illegal'){ thock(t,0.35,0.6); }
   }catch(e){}
 }
 
@@ -507,7 +521,7 @@ function render(opts){
   scratch.load(fen);
   if(scratch.in_check()) checkSq=findKing(map,scratch.turn());
 
-  var pre={}; if(S.premove && S.viewPly===null){ pre[S.premove.from]=1; pre[S.premove.to]=1; }
+  var pre={}; if(S.viewPly===null) S.premoves.forEach(function(q){ pre[q.from]=1; pre[q.to]=1; });
   for(var sq in sqEls){
     var d=sqEls[sq], c='sq '+(d.dataset.dark?'d':'l');
     if(lm && (lm.from===sq||lm.to===sq)) c+=' last';
@@ -515,7 +529,7 @@ function render(opts){
     if(checkSq===sq) c+=' check';
     if(pre[sq]) c+=' pre';
     if(S.marks[sq]) c+=' mk-'+S.marks[sq];
-    d.className=c;
+    if(d.className!==c) d.className=c;
   }
 
   syncPieces(fen, opts.move, opts.instant);
@@ -631,7 +645,7 @@ function renderStatus(){
     if(S.hintBusy) { el('span','spin',st); txt='Finding a hint…'; }
   }else{
     el('span','spin',st);
-    txt=(S.game.in_check()?'Check! ':'')+'Stockfish is thinking…'+(S.premove?'  (premove set)':'');
+    txt=(S.game.in_check()?'Check! ':'')+'Stockfish is thinking…'+(S.premoves.length?'  ('+S.premoves.length+(S.premoves.length>1?' premoves':' premove')+' queued)':'');
   }
   st.appendChild(document.createTextNode(txt));
 }
@@ -643,8 +657,7 @@ function renderButtons(){
   $('#b-undo').disabled = n<=minLen || !!S.imported;
   $('#b-hint').disabled = !(live && !S.over && S.game.turn()===S.human && !S.hintBusy);
   var rb=$('#b-resign');
-  if(S.over){ rb.textContent='Review'; rb.disabled=false; rb.classList.add('primary'); }
-  else { rb.textContent='Resign'; rb.disabled=n===0; rb.classList.remove('primary'); }
+  rb.textContent='Resign'; rb.disabled=!!S.over || n===0; rb.classList.remove('primary');
 }
 
 /* =====================================================================
@@ -810,10 +823,11 @@ function newGame(o){
   S.flipped = S.human==='b';
   S.moves=[]; S.fens=[S.startFen]; S.clock={w:S.tc.base*1000,b:S.tc.base*1000};
   S.clockSnaps=[{w:S.clock.w,b:S.clock.b}]; S.lastTick=null;
-  S.viewPly=null; S.sel=null; S.targets=[]; S.premove=null; S.hint=null; S.marks={}; S.arrows=[];
+  S.viewPly=null; S.sel=null; S.targets=[]; S.premoves=[]; S.hint=null; S.marks={}; S.arrows=[];
   S.last=null; S.over=null; S.promo=null; S.review=null; S.imported=false; S.names=null;
   closePromo();
   Engine.newGame();
+  BG.reset(); BG.add(S.startFen);
   resetPieces();
   render();
   save();
@@ -841,7 +855,7 @@ function restore(){
     S.clockSnaps[0]={w:tc.base*1000,b:tc.base*1000};
     S.started=true;
     S.over=d.over||null; S.flipped=!!d.flipped; S.last=null; S.imported=!!d.imported; S.names=d.names||null; S.review=null;
-    S.viewPly=null; S.sel=null; S.targets=[]; S.premove=null; S.hint=null; S.marks={}; S.arrows=[]; S.lastTick=null;
+    S.viewPly=null; S.sel=null; S.targets=[]; S.premoves=[]; S.hint=null; S.marks={}; S.arrows=[]; S.lastTick=null;
     return true;
   }catch(e){ return false; }
 }
@@ -856,12 +870,11 @@ function detectOver(){
   return null;
 }
 function finishGame(o, silent){
-  S.over=o; S.token++; S.thinking=false; S.hintBusy=false; S.premove=null; S.sel=null; S.targets=[]; S.hint=null;
+  S.over=o; S.token++; S.thinking=false; S.hintBusy=false; S.premoves=[]; S.sel=null; S.targets=[]; S.hint=null;
   closePromo();
   S.lastTick=null;
   save();
   if(!silent){
-    if(S.moves.length) setTimeout(function(){ if(S.over===o) ensureReview(); }, 60);     /* analyse in the background while the result popup is showing */
     setTimeout(function(){ sound('end'); }, 350);
     setTimeout(function(){ if(S.over===o) showGameOver(); }, 800);
   }
@@ -898,20 +911,20 @@ function commitMove(mv, opts){
   if(over) finishGame(over); else save();
   sound(snd);
   render({move:m, instant:opts.instant});
+  if(!S.over) BG.add(S.game.fen());
   if(!S.over){
     if(S.game.turn()!==S.human) requestAI();
-    else if(S.premove) setTimeout(runPremove, 90);
+    else if(S.premoves.length) setTimeout(runPremove, 25);
   }
   return m;
 }
 
 function runPremove(){
-  var p=S.premove; S.premove=null;
-  if(!p||S.over||S.game.turn()!==S.human) { render(); return; }
+  var p=S.premoves.shift();
+  if(!p||S.over||S.game.turn()!==S.human){ S.premoves=[]; render(); return; }
   var cand=legalMovesFrom(p.from).filter(function(m){ return m.to===p.to; });
-  if(!cand.length){ render(); return; }
-  var promo=cand[0].promotion?'q':undefined;
-  commitMove({from:p.from,to:p.to,promotion:promo});
+  if(!cand.length){ S.premoves=[]; render(); sound('illegal'); return; }      /* the position changed: drop the whole queue */
+  commitMove({from:p.from,to:p.to,promotion:cand[0].promotion?'q':undefined});
 }
 
 function requestAI(){
@@ -922,7 +935,7 @@ function requestAI(){
   var t0=performance.now();
   Engine.bestMove(fen,lvl.skill,ms,lvl.depth,lvl.fb).then(function(uci){
     if(token!==S.token||S.over) return;
-    var wait=Math.max(0, 420-(performance.now()-t0));
+    var wait=Math.max(0, 140-(performance.now()-t0));
     setTimeout(function(){
       if(token!==S.token||S.over) return;
       S.thinking=false;
@@ -948,8 +961,31 @@ function attemptMove(from,to,opts){
   commitMove({from:from,to:to},opts);
   return 'moved';
 }
+/* Premoves are checked against a "virtual" position: the real one, with every queued premove already played and the human to move. */
+var MAXPRE=12;
+function turnFen(fen,color){ var p=fen.split(' '); p[1]=color; p[3]='-'; return p.join(' '); }
+function preGame(n){
+  var g;
+  try{
+    g=new Chess(turnFen(S.game.fen(),S.human));
+    for(var i=0;i<n;i++){
+      var pm=S.premoves[i];
+      var c=g.moves({square:pm.from,verbose:true}).filter(function(m){ return m.to===pm.to; })[0];
+      if(!c) return null;
+      g.move({from:pm.from,to:pm.to,promotion:c.promotion?'q':undefined});
+      g=new Chess(turnFen(g.fen(),S.human));
+    }
+  }catch(e){ return null; }
+  return g;
+}
 function setPremove(from,to){
-  S.premove={from:from,to:to}; S.sel=null; S.targets=[]; render();
+  S.sel=null; S.targets=[];
+  var g=preGame(S.premoves.length);
+  if(g && S.premoves.length<MAXPRE){
+    var ok=g.moves({square:from,verbose:true}).some(function(m){ return m.to===to; });
+    if(ok) S.premoves.push({from:from,to:to});
+  }
+  render();
 }
 
 /* --- promotion picker --- */
@@ -989,7 +1025,7 @@ function undo(){
   S.token++; S.thinking=false; S.hintBusy=false; closePromo();
   while(S.moves.length>target){ S.game.undo(); S.moves.pop(); S.fens.pop(); S.clockSnaps.pop(); }
   var snap=S.clockSnaps[S.clockSnaps.length-1]; S.clock={w:snap.w,b:snap.b};
-  S.over=null; S.review=null; S.premove=null; S.sel=null; S.targets=[]; S.viewPly=null; S.hint=null; S.marks={}; S.arrows=[]; S.lastTick=null;
+  S.over=null; S.review=null; S.premoves=[]; S.sel=null; S.targets=[]; S.viewPly=null; S.hint=null; S.marks={}; S.arrows=[]; S.lastTick=null;
   resetPieces(); render(); save();
   closeModal();
   if(S.game.turn()!==S.human) requestAI();
@@ -1038,7 +1074,8 @@ function canInteract(){ return !S.over && S.viewPly===null && !S.promo && !S.mod
 function clearAnnotations(){ var had=Object.keys(S.marks).length||S.arrows.length; S.marks={}; S.arrows=[]; return had; }
 function selectSq(sq){
   S.sel=sq;
-  S.targets = (S.game.turn()===S.human) ? legalMovesFrom(sq) : [];
+  var g = (S.game.turn()===S.human) ? S.game : preGame(S.premoves.length);
+  S.targets = g ? g.moves({square:sq,verbose:true}) : [];
   S.hint=null;
 }
 function hoverSq(sq){
@@ -1073,7 +1110,7 @@ boardEl.addEventListener('pointerdown',function(e){
   if(S.modal||S.promo) return;
   var sq=sqFromPoint(e.clientX,e.clientY,true); if(!sq) return;
   /* mouse: right-button drag draws an arrow (Shift=red, Ctrl=yellow, Alt=blue) */
-  if(e.pointerType==='mouse' && e.button===2){ startArrow(sq,keyFromEvent(e),e.pointerId); e.preventDefault(); return; }
+  if(e.pointerType==='mouse' && e.button===2){ if(S.premoves.length){ S.premoves=[]; render(); } startArrow(sq,keyFromEvent(e),e.pointerId); e.preventDefault(); return; }
   if(e.button!==0) return;
   if(clearAnnotations()){ render(); }
   /* touch / pen: press and hold for a moment, then drag to draw an arrow */
@@ -1089,24 +1126,24 @@ boardEl.addEventListener('pointerdown',function(e){
     },420)};
   }
   if(!canInteract()) return;
-  var myTurn=S.game.turn()===S.human, piece=S.game.get(sq), own=piece&&piece.color===S.human;
+  var myTurn=S.game.turn()===S.human, vg=S.game;
+  if(!myTurn){ vg=preGame(S.premoves.length); if(!vg){ S.premoves=[]; vg=preGame(0); } }
+  var piece=vg&&vg.get(sq), own=!!(piece&&piece.color===S.human);
 
-  if(S.sel && S.sel!==sq){
-    if(myTurn){
-      if(S.targets.some(function(m){return m.to===sq;})){ cancelLP(); attemptMove(S.sel,sq); return; }
-    }else if(!own){ cancelLP(); setPremove(S.sel,sq); return; }
+  if(S.sel && S.sel!==sq && S.targets.some(function(m){return m.to===sq;})){
+    cancelLP();
+    if(myTurn) attemptMove(S.sel,sq); else setPremove(S.sel,sq);
+    return;
   }
   if(own){
     S.wasSel=(S.sel===sq);
-    if(!myTurn && S.premove){ S.premove=null; }
     selectSq(sq);
-    var pe=pieceEls[sq];
+    var pe=pieceEls[sq]; if(pe && pe.dataset.t!==(piece.color+piece.type.toUpperCase())) pe=null;
     S.drag={sq:sq,el:pe,x:e.clientX,y:e.clientY,active:false,id:e.pointerId};
     try{ boardEl.setPointerCapture(e.pointerId); }catch(x){}
     render();
-  }else{
-    if(S.sel||S.premove){ S.sel=null; S.targets=[]; if(!myTurn) S.premove=null; render(); }
-  }
+  }else if(S.sel){ S.sel=null; S.targets=[]; render(); }
+  else if(!myTurn && S.premoves.length){ S.premoves=[]; render(); }     /* tap an empty square: cancel all premoves */
 });
 boardEl.addEventListener('pointermove',function(e){
   if(S.lp && S.lp.id===e.pointerId && Math.abs(e.clientX-S.lp.x)+Math.abs(e.clientY-S.lp.y)>10) cancelLP();
@@ -1140,9 +1177,8 @@ function endDrag(e,cancel){
     var res=attemptMove(d.sq,to,{instant:true});
     if(res!=='moved'){ place(d.el,d.sq,true); if(res==='illegal') sound('illegal'); }
   }else{
-    var tp=S.game.get(to);
     place(d.el,d.sq,true);
-    if(!(tp&&tp.color===S.human)) setPremove(d.sq,to);
+    setPremove(d.sq,to);
   }
 }
 boardEl.addEventListener('pointerup',function(e){
@@ -1203,7 +1239,45 @@ function showSettings(){
     var r=el('div','row',card);
     var ab=el('button','btn sec',r); ab.textContent='About & Privacy'; ab.onclick=showAbout;
     var imp=el('button','linkbtn',card); imp.textContent='Import PGN / FEN'; imp.style.marginTop='10px'; imp.onclick=showImport;
+    var et=el('button','linkbtn',card); et.textContent='Engine speed test'; et.style.marginTop='10px'; et.style.display='block'; et.onclick=showEngineTest;
     var ok=el('button','btn',r); ok.textContent='Done'; ok.onclick=close;
+  });
+}
+
+function showEngineTest(){
+  openModal(function(card,close){
+    el('h2',null,card).textContent='Engine speed test';
+    var out=el('p','small',card); out.style.whiteSpace='pre-wrap'; out.style.lineHeight='1.5';
+    var lines=[];
+    function say(t){ lines.push(t); out.textContent=lines.join('\n'); }
+    say('Phone: '+(navigator.hardwareConcurrency||'?')+' cores'+(navigator.deviceMemory?', ~'+navigator.deviceMemory+' GB':'')+'\nApp: v'+VERSION);
+    var r=el('div','row',card), ok=el('button','btn',r); ok.textContent='Close'; var L=null, cancelled=false;
+    ok.onclick=function(){ cancelled=true; if(L) L.kill(); close(); };
+    if(!Engine.url||Engine.failed){ say('\nThe chess engine could NOT start on this device (basic analysis is used instead).'); return; }
+    say('\nStarting engine…');
+    L=new Lane();
+    var fens=['rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1','r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4','r3k2r/pp1n1ppp/2p1pn2/q2p4/1bPP4/2N1PN2/PP2BPPP/R1BQ1RK1 w kq - 2 10'], k=0, speeds=[];
+    function next(){
+      if(cancelled) return;
+      if(k>=fens.length){
+        L.kill();
+        var avg=speeds.length?speeds.reduce(function(a,b){return a+b;},0)/speeds.length:0;
+        var perPos=avg?(600/avg):0;
+        say('\nAverage: ~'+Math.round(avg)+' nodes per second');
+        if(avg) say('A 70-move game needs roughly '+Math.max(3,Math.round(140*perPos/Math.max(1,clamp(Math.floor((navigator.hardwareConcurrency||2)/2),1,3))))+' s of analysis.');
+        say(avg>8000?'Verdict: fast – review will be quick.':avg>2000?'Verdict: OK – review finishes within the time limit.':'Verdict: slow – review will be shallow on this phone.');
+        return;
+      }
+      L.run(fens[k],1000,8000,30000,function(res){
+        if(cancelled) return;
+        if(res&&res.score){ var sp=res.nps||0; speeds.push(sp); say('Test '+(k+1)+': 1000 nodes searched in '+Math.round(res.ms)+' ms (~'+Math.round(sp)+'/s, depth '+res.depth+')'); }
+        else say('Test '+(k+1)+': no answer from the engine (timed out).');
+        k++; next();
+      });
+    }
+    var tries=0;
+    L.onFree=function(){ if(L.ready && k===0 && !L.job && !tries++){ say('Ready after '+Math.round(L.readyMs)+' ms'); next(); } if(L.dead){ say('The engine keeps crashing on this device.'); } };
+    L.spawn();
   });
 }
 function aboutHtml(tab){
@@ -1255,6 +1329,177 @@ function toWhite(fen,sc){
   if(fen.split(' ')[1]==='b'){ cp=-cp; if(mate!==null) mate=-mate; }
   return {cp:cp, mate:mate};
 }
+
+/* One dedicated analysis engine (a worker) with a watchdog: if it hangs or dies it is restarted, never waited on forever. */
+function Lane(){ this.w=null; this.ready=false; this.job=null; this.dead=false; this.fails=0; this.onFree=null; this.spawnT=0; this.readyMs=0; this.rt=null; }
+Lane.prototype.spawn=function(){
+  var self=this; this.kill();
+  try{ this.w=new Worker(Engine.url); }catch(e){ this.dead=true; return false; }
+  this.spawnT=performance.now();
+  this.w.onmessage=function(e){ self.onmsg(e.data); };
+  this.w.onerror=function(){ self.crash(); };
+  this.w.postMessage('uci'); this.w.postMessage('setoption name Skill Level value 20'); this.w.postMessage('setoption name Hash value 4'); this.w.postMessage('isready');
+  this.rt=setTimeout(function(){ if(!self.ready) self.crash(); },25000);      /* never became ready */
+  return true;
+};
+/* Use the same engine that plays against you as one of the review lanes: if you can play, it works. */
+Lane.prototype.adopt=function(w){
+  var self=this; this.adopted=true; this.w=w; this.ready=true; this.spawnT=performance.now();
+  w.onmessage=function(e){ self.onmsg(e.data); };
+  w.onerror=function(){ self.crash(); };
+  w.postMessage('setoption name Skill Level value 20'); w.postMessage('setoption name Hash value 4');
+};
+Lane.prototype.kill=function(){
+  clearTimeout(this.rt);
+  var busy=!!this.job;
+  if(this.job){ clearTimeout(this.job.timer); this.job=null; }
+  if(this.adopted){
+    /* hand the bot engine back; a search that is still running will answer later, so reserve a slot for that stray reply */
+    var w=this.w; this.adopted=false;
+    if(w){ w.onmessage=function(e){ Engine.onmsg(e.data); }; w.onerror=function(ev){ console.warn('Engine worker error:', ev&&ev.message); Engine.fail(); }; }
+    if(busy) Engine.pending.push({done:true});
+    this.w=null; this.ready=false; return;
+  }
+  if(this.w){ try{ this.w.terminate(); }catch(e){} this.w=null; }
+  this.ready=false;
+};
+Lane.prototype.crash=function(){
+  var j=this.job, wasAdopted=this.adopted;
+  this.fails++; this.kill();                       /* kill() also clears the job and its timer */
+  if(wasAdopted || this.fails>=3) this.dead=true; else this.spawn();
+  if(j) j.cb(null);
+  if(this.onFree) this.onFree(this);
+};
+Lane.prototype.onmsg=function(line){
+  if(typeof line!=='string') return;
+  if(line==='readyok'){ if(!this.ready){ this.ready=true; clearTimeout(this.rt); this.readyMs=performance.now()-this.spawnT; if(this.onFree) this.onFree(this); } return; }
+  var j=this.job; if(!j) return;
+  if(line.indexOf('info')===0 && line.indexOf(' score ')>0){
+    var m=/score (cp|mate) (-?\d+)/.exec(line);
+    if(m){ var sc={type:m[1],v:+m[2]}; if(line.indexOf('bound')<0) j.score=sc; else j.bscore=sc; }
+    var np=/ nps (\d+)/.exec(line); if(np) j.nps=+np[1];
+    var nd=/ nodes (\d+)/.exec(line); if(nd) j.nodes=+nd[1];
+    var dp=/ depth (\d+)/.exec(line); if(dp) j.depth=+dp[1];
+  }else if(line.indexOf('bestmove')===0){
+    clearTimeout(j.timer); this.job=null; this.fails=0;
+    var mv=line.split(' ')[1]; mv=(mv&&mv!=='(none)')?mv:null;
+    var ms=performance.now()-j.t0;
+    /* speed = nodes searched / wall-clock time of the whole job (honest and slightly pessimistic; the engine's own 'nps' is unreliable on very short searches) */
+    var mine=(j.nodes&&ms>0)?Math.round(j.nodes*1000/ms):0;
+    j.cb({best:mv, score:j.score||j.bscore||null, nps:mine||j.nps||0, nodes:j.nodes, depth:j.depth, ms:ms});
+    if(this.onFree) this.onFree(this);
+  }
+};
+Lane.prototype.run=function(fen,nodes,cap,watch,cb){
+  var self=this, j={fen:fen,score:null,bscore:null,nps:0,nodes:0,depth:0,cb:cb,t0:performance.now()};
+  this.job=j;
+  j.timer=setTimeout(function(){ if(self.job===j) self.crash(); },watch);
+  this.w.postMessage('ucinewgame'); this.w.postMessage('position fen '+fen); this.w.postMessage('go nodes '+nodes+' movetime '+cap);
+};
+
+/* Analyse a list of positions on several lanes inside a HARD time limit.
+   Whatever is not finished when time is up is simply left out (and reported as such), so it can never run on for minutes. */
+function analyzeBatch(items, o, onItem, done){
+  var t0=performance.now(), queue=items.slice(), left=items.length, inflight=0, lanes=[], finished=false;
+  var st={nps:o.nps0||0, lanes:0, real:0, failed:0, skipped:0, readyMs:0};
+  function finish(){
+    if(finished) return; finished=true; clearTimeout(dl);
+    lanes.forEach(function(L){ L.onFree=null; L.kill(); });
+    st.skipped=queue.length+inflight; st.ms=performance.now()-t0;
+    done(st);
+  }
+  var dl=setTimeout(finish,o.deadline);
+  function plan(){
+    var el=performance.now()-t0, remain=Math.max(o.soft-el,o.soft*0.12);
+    var live=Math.max(1,lanes.filter(function(L){ return !L.dead; }).length);
+    var perPos=remain*live/Math.max(queue.length+inflight,1);
+    var nodes=st.nps ? st.nps*perPos/1000*0.7 : o.n0;
+    var lv=[250,500,1000,2000,4000,8000,16000,32000,64000], pick=lv[0];
+    for(var z=0;z<lv.length;z++){ if(lv[z]<=nodes) pick=lv[z]; }
+    nodes=clamp(pick,o.nmin,o.nmax);
+    var cap=Math.round(clamp(perPos*3,1000,6000));
+    var watch=st.nps ? clamp(nodes/st.nps*1000*4+2500,4000,20000) : 15000;
+    return {nodes:nodes,cap:cap,watch:watch};
+  }
+  function kick(L){
+    if(finished||L.dead||L.job||!L.ready) return;
+    if(o.alive && !o.alive()){ finish(); return; }
+    if(!st.nps && !L.cal){
+      L.cal=true;
+      L.run(START_FEN,250,3000,15000,function(r){ if(finished) return; if(r && r.nps>0) st.nps = st.nps ? st.nps*0.7+r.nps*0.3 : r.nps; kick(L); });
+      return;
+    }
+    var it=queue.shift();
+    if(!it){ if(!inflight && !left) finish(); return; }
+    var pl=plan(); inflight++;
+    L.run(it.fen,pl.nodes,pl.cap,pl.watch,function(r){
+      inflight--; if(finished) return;
+      if(r && r.score){
+        st.real++; left--;
+        if(r.nps>0) st.nps = st.nps ? st.nps*0.7+r.nps*0.3 : r.nps;
+        onItem(it.i, toWhite(it.fen,r.score), r.best, r);
+      }else if((it.tries=(it.tries||0)+1)<2 && !lanes.every(function(x){ return x.dead; })){
+        queue.push(it);                         /* one more try, probably on another lane */
+        setTimeout(function(){ lanes.forEach(kick); },0);
+      }else{ st.failed++; left--; onItem(it.i,null,null,null); }
+      if(!left){ finish(); return; }
+      if(lanes.every(function(x){ return x.dead; })){ finish(); return; }
+    });
+  }
+  var n=Math.max(1,o.lanes);
+  if(!Engine.url || Engine.failed){ setTimeout(finish,0); return {abort:finish}; }
+  for(var q=0;q<n;q++){
+    var L=new Lane(); L.onFree=kick; lanes.push(L);
+    if(q===0 && Engine.w && Engine.ready && !Engine.failed && !Engine.pending.some(function(j){ return !j.done; })){
+      L.adopt(Engine.w); (function(L0){ setTimeout(function(){ kick(L0); },0); })(L);
+    }else if(!L.spawn()) L.dead=true;
+  }
+  st.lanes=n;
+  if(lanes.every(function(x){ return x.dead; })) setTimeout(finish,0);
+  /* readiness time is a useful diagnostic */
+  var rcheck=setInterval(function(){ if(finished){ clearInterval(rcheck); return; } var r=lanes.filter(function(L){ return L.ready; }); if(r.length){ st.readyMs=r[0].readyMs; clearInterval(rcheck); } },200);
+  return {abort:finish, stats:st};
+}
+
+/* Background analysis: while you think (and the bot is not), a spare engine quietly checks each new position.
+   When the game ends most of the review work is already done, so the summary appears almost instantly. */
+var REVIEW_ENABLED=false;      /* Game Review is switched off for now; set to true to bring it back */
+var BG={
+  lane:null, busy:false, queue:[], cache:{}, n:0, nps:0, dead:false, t:null,
+  start:function(){
+    if(this.lane||this.dead||!Engine.url||Engine.failed) return;
+    var self=this, L=new Lane(); L.onFree=function(){ if(L.dead){ self.dead=true; self.lane=null; self.busy=false; } self.pump(); };
+    this.lane=L; if(!L.spawn()){ this.dead=true; this.lane=null; }
+  },
+  stop:function(){ clearTimeout(this.t); if(this.lane){ this.lane.onFree=null; this.lane.kill(); } this.lane=null; this.busy=false; },
+  reset:function(){ this.queue=[]; },
+  add:function(fen){
+    if(!REVIEW_ENABLED||!cfg.bg||this.dead||this.cache[fen]||this.queue.indexOf(fen)>=0) return;
+    try{ if(new Chess(fen).game_over()) return; }catch(x){ return; }
+    this.queue.push(fen); this.pump();
+  },
+  pump:function(){
+    var self=this;
+    if(this.busy||!this.queue.length||!cfg.bg||this.dead) return;
+    if(S.review && !S.review.done) return;
+    if(S.thinking||S.over||(S.drag&&S.drag.active)||document.hidden){ clearTimeout(this.t); this.t=setTimeout(function(){ self.pump(); },500); return; }
+    this.start(); var L=this.lane; if(!L||!L.ready) return;      /* onFree calls pump() once it is ready */
+    var fen=this.queue.shift();
+    if(this.cache[fen]){ this.pump(); return; }
+    var nodes=clamp(Math.round((this.nps||1500)*0.6),500,12000);
+    var watch=this.nps? clamp(nodes/this.nps*1000*4+2500,4000,20000) : 15000;
+    this.busy=true;
+    L.run(fen,nodes,4000,watch,function(r){
+      self.busy=false;
+      if(r && r.score){
+        if(self.n++>800){ self.cache={}; self.n=0; }
+        self.cache[fen]={ev:toWhite(fen,r.score),best:r.best};
+        if(r.nps>0) self.nps=self.nps?self.nps*0.7+r.nps*0.3:r.nps;
+      }
+    });
+  }
+};
+
 function evalText(e){
   if(!e) return '';
   if(e.mate!==null) return e.mate===0 ? '#' : (e.mate>0?'+':'-')+'M'+Math.abs(e.mate);
@@ -1280,142 +1525,95 @@ function showReviewProgress(rv){
   openModal(function(card,close){
     el('h2',null,card).textContent='Game Review';
     var txt=el('p',null,card), bar=el('i',null,el('div','prog',card));
-    var note=el('p','small',card); note.style.marginTop='10px'; note.textContent='Runs on your device. It adapts to your phone\u2019s speed so it finishes quickly.';
+    var note=el('p','small',card); note.style.marginTop='10px'; note.textContent='Analysing on your device, no internet needed. This stops after about 35 seconds at most.';
     rv.ui={txt:txt,bar:bar}; updateProgress(rv);
     var r=el('div','row',card), c=el('button','btn sec',r); c.textContent='Cancel';
     c.onclick=function(){ rv.cancel=true; if(rv.cleanup) rv.cleanup(); if(S.review===rv) S.review=null; close(); };
   }, false);
 }
 
-/* Two-pass analysis:
-   pass 1  = quick look at every position (a few seconds) -> review is usable immediately
-   pass 2  = deep re-check of only the suspicious moves, in the background -> verdicts get more accurate */
+/* Two-pass analysis, both under hard time limits:
+   pass 1  = quick look at every position -> review is usable immediately (max ~40 s, usually far less)
+   pass 2  = deeper re-check of only the suspicious moves, in the background (max ~22 s) */
 function ensureReview(){
   if(S.review) return S.review;
+  BG.stop(); BG.reset();
   var n=S.moves.length, total=n+1;
-  var rv={done:false,cancel:false,evals:[],best:[],marks:{},refining:false,refineDone:0,refineTotal:0,refreshFn:null,ui:null,doneCount:0,total:total,game:S.game};
+  var rv={done:false,cancel:false,evals:[],best:[],marks:{},refining:false,refineDone:0,refineTotal:0,refreshFn:null,ui:null,doneCount:0,total:total,game:S.game,cov:0,stats:null,basic:false};
   S.review=rv;
-  var doneCount=0;
-
-  var extras=[], lanesObj=[], mainBusy=false;
-  var P={list:[],cfg:null,t0:0,nps:0,pending:0,resolve:null,tick:null};
-  /* Work out how many nodes each position may use so the whole pass fits its time budget on THIS device. */
-  function liveLanes(){ return 1+lanesObj.filter(function(L){ return !L.dead; }).length; }
-  function goFor(){
-    var c=P.cfg, elapsed=performance.now()-P.t0;
-    var remaining=Math.max(c.budget-elapsed, c.budget*0.15);
-    var perPosMs=remaining*liveLanes()/Math.max(P.pending,1);
-    var nodes = P.nps ? P.nps*perPosMs/1000*0.8 : c.n0;
-    var floor = elapsed>c.budget*1.2 ? 250 : c.nmin;   /* running late: just get a quick look at the rest */
-    nodes=clamp(Math.round(nodes),floor,c.nmax);
-    var cap=Math.round(clamp(perPosMs*3,1500,8000));
-    return {go:'nodes '+nodes+' movetime '+cap, cap:cap};
-  }
+  var batch=null;
   function alive(){ return !rv.cancel && S.review===rv && S.game===rv.game; }
-  function cleanup(){ extras.forEach(function(w){ try{ w.terminate(); }catch(e){} }); extras=[]; lanesObj=[]; }
-  rv.cleanup=cleanup;
-  function complete(i,ev,best,nps){
-    rv.evals[i]=ev; rv.best[i]=best||null; P.pending--;
-    if(nps>0) P.nps = P.nps ? P.nps*0.7+nps*0.3 : nps;
-    if(P.tick) P.tick();
-    if(P.pending<=0 && P.resolve){ var r=P.resolve; P.resolve=null; r(); }
-  }
-  function take(){ return P.list.length ? P.list.pop() : -1; }
+  rv.cleanup=function(){ if(batch){ var b=batch; batch=null; b.abort(); } };
   function terminal(i){
     var g=new Chess(S.fens[i]);
     if(!g.game_over()) return null;
     var cm=g.in_checkmate();
     return {cp:cm?(g.turn()==='w'?-1000:1000):0, mate:cm?0:null};
   }
-  function mainLane(){
-    if(!alive()){ mainBusy=false; cleanup(); return; }
-    var i=take(); if(i<0){ mainBusy=false; return; }
-    mainBusy=true;
-    var fen=S.fens[i], g=goFor();
-    Engine.bestMove(fen,20,g.cap,g.go,2,true).then(function(r){
-      if(!alive()){ mainBusy=false; cleanup(); return; }
-      complete(i,toWhite(fen,r&&r.score),r&&r.best,r&&r.nps); setTimeout(mainLane,0);
-    });
-  }
-  function startExtra(){
-    var w; try{ w=new Worker(Engine.url); }catch(e){ return null; }
-    extras.push(w);
-    var L={cur:null,dead:false};
-    function giveBack(){
-      if(L.dead) return; L.dead=true;
-      if(L.cur){ clearTimeout(L.cur.timer); P.list.push(L.cur.i); L.cur=null; }
-      try{ w.terminate(); }catch(e){}
-      if(!mainBusy && alive()) mainLane();
-    }
-    w.onerror=giveBack;
-    w.onmessage=function(e){
-      var line=e.data; if(typeof line!=='string'||!L.cur) return;
-      if(line.indexOf('info')===0 && line.indexOf(' score ')>0 && line.indexOf('bound')<0){
-        var m=/score (cp|mate) (-?\d+)/.exec(line); if(m) L.cur.score={type:m[1],v:+m[2]};
-        var np=/ nps (\d+)/.exec(line); if(np) L.cur.nps=+np[1];
-      }else if(line.indexOf('bestmove')===0){
-        var j=L.cur; L.cur=null; clearTimeout(j.timer);
-        var mv=line.split(' ')[1];
-        if(!alive()){ cleanup(); return; }
-        complete(j.i,toWhite(j.fen,j.score),(mv&&mv!=='(none)')?mv:null,j.nps); L.kick();
-      }
-    };
-    w.postMessage('uci'); w.postMessage('setoption name Skill Level value 20'); w.postMessage('setoption name Hash value 4');
-    L.kick=function(){
-      if(L.dead||L.cur) return;
-      if(!alive()){ cleanup(); return; }
-      var i=take(); if(i<0) return;
-      var g=goFor();
-      L.cur={i:i,fen:S.fens[i],score:null,nps:0};
-      L.cur.timer=setTimeout(giveBack,g.cap+15000);
-      w.postMessage('ucinewgame'); w.postMessage('position fen '+L.cur.fen); w.postMessage('go '+g.go);
-    };
-    return L;
-  }
-  function runPass(list,cfg,tick){
-    return new Promise(function(resolve){
-      if(!list.length){ resolve(); return; }
-      P.list=list.slice().reverse(); P.cfg=cfg; P.t0=performance.now(); P.pending=list.length; P.tick=tick; P.resolve=resolve;
-      if(!mainBusy) mainLane();
-      lanesObj.forEach(function(L){ L.kick(); });
-    });
-  }
+  var hc=navigator.hardwareConcurrency||2, nLanes=clamp(Math.floor(hc/2),1,3);
 
-  var nLanes=clamp(navigator.hardwareConcurrency||2,1,4);
-  if(Engine.w && !Engine.failed) Engine.send('setoption name Hash value 4');
-  if(Engine.url && !Engine.failed){ for(var q=1;q<nLanes;q++){ var L=startExtra(); if(L) lanesObj.push(L); } }
-
-  /* ---- pass 1 ---- */
-  var list1=[];
-  for(var i=0;i<=n;i++){ var t=terminal(i); if(t){ rv.evals[i]=t; rv.best[i]=null; doneCount++; } else list1.push(i); }
+  var list1=[], doneCount=0;
+  for(var i=0;i<=n;i++){
+    var t=terminal(i), bc=BG.cache[S.fens[i]];
+    if(t){ rv.evals[i]=t; rv.best[i]=null; doneCount++; }
+    else if(bc){ rv.evals[i]=bc.ev; rv.best[i]=bc.best; doneCount++; }      /* already analysed while you were playing */
+    else list1.push({i:i,fen:S.fens[i]});
+  }
   rv.doneCount=doneCount;
-  runPass(list1,{budget:30000,nmin:700,nmax:6000,n0:3000},function(){
-    doneCount++; rv.doneCount=doneCount; updateProgress(rv);
-  }).then(function(){
+
+  function conclude(){
     if(!alive()) return;
     computeMarks(rv); rv.done=true;
-    var watching = rv.ui && rv.ui.txt.isConnected;      /* user is waiting on the progress popup */
+    var watching = rv.ui && rv.ui.txt.isConnected;
     render();
     if(watching){ closeModal(); showReviewSummary(); }
     refine();
-  });
+  }
+
+  function runBasic(list){
+    rv.basic=true; var qi=0, tStart=performance.now();
+    (function step(){
+      if(!alive()) return;
+      var t0=performance.now();
+      while(qi<list.length && performance.now()-t0<30 && performance.now()-tStart<20000){
+        var it=list[qi++];
+        if(rv.evals[it.i]) continue;
+        try{ rv.evals[it.i]=toWhite(it.fen,{type:'cp',v:negamax(new Chess(it.fen),1,-1e9,1e9)}); rv.best[it.i]=fallbackMove(it.fen,1); }catch(e){}
+        doneCount++; rv.doneCount=doneCount; updateProgress(rv);
+      }
+      if(qi<list.length && performance.now()-tStart<20000) setTimeout(step,0); else conclude();
+    })();
+  }
+  if(!list1.length){ setTimeout(conclude,0); }
+  else if(Engine.failed || !Engine.url){ runBasic(list1); }      /* no engine on this device: a rough material-based review */
+  else{
+    batch=analyzeBatch(list1,{lanes:nLanes,deadline:35000,soft:18000,n0:500,nmin:250,nmax:16000,alive:alive},
+      function(i,ev,best){ if(ev){ rv.evals[i]=ev; rv.best[i]=best||null; } doneCount++; rv.doneCount=doneCount; updateProgress(rv); },
+      function(st){
+        batch=null; rv.stats=st; rv.ctx={lanes:nLanes,hc:hc};
+        if(!alive()) return;
+        if(st.real===0){ runBasic(list1); return; }        /* the engine never answered: say so, but still give a rough review */
+        conclude();
+      });
+  }
 
   /* ---- pass 2: deeper look at the suspicious moves only ---- */
   function refine(){
+    if(!alive() || rv.basic){ return; }
     var sus=[];
-    for(var k=1;k<=n;k++){ if(rv.marks[k].loss>=4) sus.push({k:k,loss:rv.marks[k].loss}); }
+    for(var k=1;k<=n;k++){ if(rv.marks[k] && rv.marks[k].loss>=4) sus.push({k:k,loss:rv.marks[k].loss}); }
     sus.sort(function(a,b){ return b.loss-a.loss; });
     var seen={}, list2=[];
-    sus.slice(0,10).forEach(function(x){ [x.k-1,x.k].forEach(function(i){ if(!seen[i] && !terminal(i)){ seen[i]=1; list2.push(i); } }); });
-    list2.sort(function(a,b){ return a-b; });
-    if(!list2.length){ cleanup(); return; }
+    sus.slice(0,10).forEach(function(x){ [x.k-1,x.k].forEach(function(i){ if(!seen[i] && !terminal(i)){ seen[i]=1; list2.push({i:i,fen:S.fens[i]}); } }); });
+    list2.sort(function(a,b){ return a.i-b.i; });
+    var nps=(rv.stats&&rv.stats.nps)||0;
+    /* only worth it if this device can give each position a clearly deeper look inside the time limit */
+    if(!list2.length || !nps || nps*nLanes*16/list2.length<2500) return;
     rv.refining=true; rv.refineDone=0; rv.refineTotal=list2.length;
     render(); if(rv.refreshFn) rv.refreshFn();
-    runPass(list2,{budget:30000,nmin:6000,nmax:60000,n0:20000},function(){ rv.refineDone++; if(rv.refreshFn) rv.refreshFn(); }).then(function(){
-      if(!alive()){ cleanup(); return; }
-      computeMarks(rv); rv.refining=false; cleanup();
-      render(); if(rv.refreshFn) rv.refreshFn();
-    });
+    batch=analyzeBatch(list2,{lanes:nLanes,deadline:24000,soft:15000,n0:4000,nmin:2000,nmax:24000,nps0:nps,alive:alive},
+      function(i,ev,best){ if(ev){ rv.evals[i]=ev; rv.best[i]=best||null; } rv.refineDone++; if(rv.refreshFn) rv.refreshFn(); },
+      function(){ batch=null; if(!alive()){ return; } computeMarks(rv); rv.refining=false; render(); if(rv.refreshFn) rv.refreshFn(); });
   }
   return rv;
 }
@@ -1440,7 +1638,8 @@ function computeMarks(rv){
     rv.marks[k]={cls:cls,label:QL[cls].label,sym:QL[cls].sym,bad:bad,bestUci:bu,bestSan:bestSan,loss:loss};
     rv.cnt[c][cls]++; sum[c]+=clamp(103.1668*Math.exp(-0.04354*loss)-3.1669,0,100); cntMoves[c]++;
   }
-  rv.acc={w:cntMoves.w?sum.w/cntMoves.w:100, b:cntMoves.b?sum.b/cntMoves.b:100};
+  rv.acc={w:cntMoves.w?sum.w/cntMoves.w:null, b:cntMoves.b?sum.b/cntMoves.b:null};
+  rv.cov = n ? (cntMoves.w+cntMoves.b)/n : 0;
 }
 
 function showReviewSummary(){
@@ -1454,7 +1653,7 @@ function showReviewSummary(){
       sides.forEach(function(c){
         var d=el('div',null,acc);
         el('span',null,d).textContent=S.imported?S.names[c]:(c===S.human?'You':'Stockfish');
-        el('b',null,d).textContent=rv.acc[c].toFixed(1);
+        el('b',null,d).textContent=(rv.acc[c]===null||rv.cov<0.5)?'\u2013':rv.acc[c].toFixed(1);
         el('span',null,d).textContent='Accuracy';
       });
       var t=el('table','rvt',card);
@@ -1464,10 +1663,20 @@ function showReviewSummary(){
         td.appendChild(document.createTextNode(QL[q].label));
         sides.forEach(function(c){ el('td',null,tr).textContent=rv.cnt[c][q]; });
       });
+      if(rv.cov<1 || rv.basic){
+        var w=el('p','small',card); w.style.color='#e6a23c'; w.style.marginTop='8px';
+        w.textContent = rv.basic ? 'The chess engine could not start on this device, so this is only a rough material-based review.'
+          : rv.cov<0.5 ? 'This phone was too slow to analyse most of this game, so no accuracy is shown. Try Settings \u203a Engine speed test.'
+          : 'Analysed '+Math.round(rv.cov*(S.moves.length))+' of '+S.moves.length+' moves \u2013 the rest ran out of time on this device.';
+      }
       var p=el('p','small',card); p.style.marginTop='10px';
       p.textContent = rv.refining
         ? 'Double-checking key moves with a deeper search… '+rv.refineDone+' / '+rv.refineTotal
-        : 'Step through the game with ‹ ›. A blue arrow shows the better move after a mistake.';
+        : 'Step through the game with ‹ ›. An orange arrow shows the better move after a mistake.';
+      if(rv.stats && rv.stats.real){
+        var dg=el('p','small',card); dg.style.opacity='.6'; dg.style.fontSize='11px';
+        dg.textContent='Engine: '+rv.stats.lanes+' lane'+(rv.stats.lanes>1?'s':'')+' \u00b7 ~'+Math.round(rv.stats.nps)+' nodes/s each \u00b7 '+(rv.stats.ms/1000).toFixed(1)+' s';
+      }
       var r=el('div','row',card);
       var cl=el('button','btn sec',r); cl.textContent='Close'; cl.onclick=function(){ close(); };
       var go=el('button','btn',r); go.textContent='Step through'; go.onclick=function(){ close(); goPly(0); };
@@ -1529,7 +1738,7 @@ function loadImported(p,mode,side){
   p.sans.forEach(function(san){ var m=g.move(san); moves.push(m); fens.push(g.fen()); });
   S.game=g; S.startFen=p.startFen; S.moves=moves; S.fens=fens; S.tc=TCS[0]; S.clock={w:0,b:0};
   S.clockSnaps=fens.map(function(){ return {w:0,b:0}; }); S.lastTick=null;
-  S.viewPly=null; S.sel=null; S.targets=[]; S.premove=null; S.hint=null; S.marks={}; S.arrows=[]; S.last=null; S.promo=null; S.review=null;
+  S.viewPly=null; S.sel=null; S.targets=[]; S.premoves=[]; S.hint=null; S.marks={}; S.arrows=[]; S.last=null; S.promo=null; S.review=null;
   S.flipped=(side==='b'); S.human=side;
   var rules=detectOver();
   if(mode==='play' && !rules){
@@ -1544,7 +1753,6 @@ function loadImported(p,mode,side){
   var res=p.result;
   S.over=rules||{winner:res==='1-0'?'w':res==='0-1'?'b':null, reason:'imported', result:res||'*'};
   S.token++; resetPieces(); render(); save();
-  startReview();
 }
 function showImport(){
   var side='w';
@@ -1565,10 +1773,10 @@ function showImport(){
     function parse(){ var r=parseImport(ta.value); if(r.error){ msg.textContent=r.error; return null; } msg.textContent=''; return r; }
     var r1=el('div','row',card);
     var cn=el('button','btn sec',r1); cn.textContent='Cancel'; cn.onclick=close;
-    var rv=el('button','btn',r1); rv.textContent='Review game';
+    var rv=el('button','btn',r1); rv.textContent='Open game';
     rv.onclick=function(){
       var r=parse(); if(!r) return;
-      if(r.type==='fen'){ msg.textContent='That is one position, not a game. Use "Play from here", or paste a PGN to review a game.'; return; }
+      if(r.type==='fen'){ msg.textContent='That is one position, not a game. Use "Play from here", or paste a PGN to open a game.'; return; }
       loadImported(r,'review',side);
     };
     var r2=el('div','row',card); r2.style.marginTop='8px';
@@ -1588,7 +1796,6 @@ function showGameOver(){
     el('div','t',big).textContent=r.title;
     el('div','s',big).textContent=r.sub.charAt(0).toUpperCase()+r.sub.slice(1);
     var row=el('div','row',card);
-    var rv=el('button','btn sec',row); rv.textContent='Review'; rv.onclick=function(){ close(); startReview(); };
     var rm=el('button','btn sec',row); rm.textContent='Rematch'; rm.onclick=function(){ close(); newGame({color:cfg.color==='r'?'r':other(S.human),level:S.level,tc:S.tc.id}); };
     var nw=el('button','btn',row); nw.textContent='New game'; nw.onclick=function(){ close(); showSetup(); };
   });
@@ -1602,7 +1809,7 @@ $('#b-new').onclick=function(){ initAudio(); showSetup(); };
 $('#b-undo').onclick=undo;
 $('#b-hint').onclick=function(){ initAudio(); getHint(); };
 $('#b-flip').onclick=flip;
-$('#b-resign').onclick=function(){ if(S.over) startReview(); else resign(); };
+$('#b-resign').onclick=function(){ if(!S.over) resign(); };
 $('#b-set').onclick=showSettings;
 $('#b-about').onclick=showAbout;
 $('#nav-first').onclick=function(){ goPly(0); };
@@ -1616,7 +1823,7 @@ document.addEventListener('keydown',function(e){
   if(e.key==='Escape'){
     if(S.modal){ closeModal(); return; }
     if(S.promo){ closePromo(); render(); return; }
-    S.sel=null; S.targets=[]; S.premove=null; S.hint=null; S.marks={}; S.arrows=[]; render(); return;
+    S.sel=null; S.targets=[]; S.premoves=[]; S.hint=null; S.marks={}; S.arrows=[]; render(); return;
   }
   if(S.modal) return;
   if(e.key==='ArrowLeft'){ goPly(viewIndex()-1); e.preventDefault(); }
@@ -1670,7 +1877,7 @@ if(!resumed){
 }
 
 /* exposed for automated tests */
-window.ChessPro={S:S,newGame:newGame,commitMove:commitMove,undo:undo,Engine:Engine,goPly:goPly,detectOver:detectOver,render:render,fmtClock:fmtClock};
+window.ChessPro={BG:BG,S:S,newGame:newGame,commitMove:commitMove,undo:undo,Engine:Engine,goPly:goPly,detectOver:detectOver,render:render,fmtClock:fmtClock};
 })();
 </script>
 </body>
